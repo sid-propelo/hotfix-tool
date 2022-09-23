@@ -284,7 +284,7 @@ def test():
 def cleanup(service: str, branch: str):
     service = Service(service)
     print(f"Git deleting branch {branch} from {service}")
-    repo = get_git_repo(Service.COMMONS)
+    repo = get_git_repo(service)
     switch_to_master_branch(service, False)
     print(repo.git.branch("-D", branch))
     print(repo.git.push("origin", "--delete", branch))
