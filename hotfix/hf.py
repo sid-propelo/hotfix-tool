@@ -319,22 +319,6 @@ def hotfix(
         f"Commons version corresponding to {service} {latest_service_version}= {prod_commons_version}"
     )
 
-    # commons - gcb <hfBranchName> <tag>
-    # commons - git cherry pick <commits>
-    # commons - ggp
-    # create a build and get the version number
-    # service - gcb <hfBranchName> <tag>
-    # service - git cherry pick <commits>
-    # service - change the commons version number to what we got earlier
-    # service - ggp
-    # create a build -> note version number
-    # devops - gco master
-    # devops - ggl
-    # devops - gcb <hfBranchName>
-    # devops - change version number for all prod and staging files
-    # devops - ggp
-    # devops - get the compare git urls for both commons and the particular service
-
     print("============================================================")
     print("Preparing commons branch")
     print("============================================================")
