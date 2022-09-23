@@ -13,9 +13,10 @@ import pdb
 
 app = typer.Typer()
 
-JENKINS_USERNAME = "sid"
-JENKINS_TOKEN = "1164b1f1f006a22b2728c8da714833790f"
-REPO_BASE = "/Users/siddharthbidasaria/propelo/code/"
+# Change ME!
+JENKINS_USERNAME = ""
+JENKINS_TOKEN = ""
+REPO_BASE = ""
 
 
 class Service(Enum):
