@@ -9,9 +9,23 @@ import os
 import re
 import in_place
 from rich import print
+from rich.prompt import Prompt
+
 import pdb
 
-app = typer.Typer()
+
+def configure_settings():
+    print("Configuring settings")
+    global JENKINS_USERNAME, JENKINS_TOKEN, REPO_BASE
+    if not JENKINS_USERNAME:
+        JENKINS_USERNAME = os.getenv("JENKINS_USERNAME")
+    if not JENKINS_TOKEN:
+        JENKINS_TOKEN = os.getenv("JENKINS_TOKEN")
+    if not REPO_BASE:
+        REPO_BASE = os.getenv("REPO_BASE")
+
+
+app = typer.Typer(callback=configure_settings)
 
 # Change ME!
 JENKINS_USERNAME = ""
@@ -73,7 +87,6 @@ def get_jenkins_build_url_from_queue(queue_url: str) -> str:
     queue_url = (
         generate_jenkins_base_url() + "/" + re.search("(queue.*)", queue_url).group()
     )
-    print(f"Queue url: {queue_url}")
     count = 0
 
     while True:
@@ -83,7 +96,9 @@ def get_jenkins_build_url_from_queue(queue_url: str) -> str:
         elif count > 15:
             raise Exception("Unable to get Jenkins build url. Something went wrong")
         else:
-            print(f"Waiting for executable to show up. Count {count}")
+            print(
+                f"[yellow]Waiting for Jenkins build information to show up. Count {count}"
+            )
             time.sleep(2)
             count += 1
 
@@ -110,7 +125,7 @@ def build_commons(branch: str, suffix: str):
     )
     if response.status_code == 201:
         queue_url = response.headers["Location"]
-        print(f"Successfully created commons build. Queue url: {queue_url}")
+        print(f"[green]Successfully created commons build. Queue url: {queue_url}")
     else:
         raise Exception(
             f"Unable to spawn commons build. Response: {response.status_code} {response.content}"
@@ -151,13 +166,12 @@ def log_git_result(result: str):
 def switch_to_master_branch(service: Service, should_pull: bool):
     repo = get_git_repo(service)
     if not ensure_repo_is_clean(repo):
-        print(
+        raise Exception(
             f"{service} repo is not clean. Please ensure a clean repo before continuing."
         )
-        return
     master_branch = SERVICE_TO_MASTER_BRANCH[service]
     active_branch = repo.active_branch if not repo.head.is_detached else "detached head"
-    print_red(f"{service} switching from {active_branch} to {master_branch}")
+    print(f"[yellow]{service} switching from {active_branch} to {master_branch}")
     log_git_result(repo.git.checkout(master_branch))
     if should_pull:
         print(f"[yellow]Pulling latest changes from {service}")
@@ -203,7 +217,7 @@ def switch_commons_version_for_service(service: Service, new_version: str):
 
 
 def get_commons_version_from_tag(service: Service, tag: str):
-    print_red(f"Getting commons version of {service} version {tag}")
+    print(f"[green]Getting commons version of {service} version {tag}")
     switch_to_master_branch(service, True)
     repo = get_git_repo(service)
     log_git_result(repo.git.fetch("--all", "--tags"))
@@ -212,11 +226,11 @@ def get_commons_version_from_tag(service: Service, tag: str):
     for t in all_tags:
         if tag in t:
             found_tag = t
-            print(f"Found tag {tag}")
+            print(f"[yellow]Found tag {tag}")
     if not found_tag:
         raise Exception("A matching tag was not found")
 
-    print(f"Checking out {found_tag}")
+    print(f"[yellow]Checking out {found_tag} for {service}")
     log_git_result(repo.git.checkout(found_tag))
     build_file_path = os.path.join(
         repo.working_tree_dir, SERVICE_TO_BUILD_FILE[service]
@@ -224,6 +238,7 @@ def get_commons_version_from_tag(service: Service, tag: str):
 
     commons_version = get_commons_version_from_file(build_file_path)
     switch_to_master_branch(service, False)
+    print(f"[green]Commons version found for {service} {tag} = {commons_version}")
     return commons_version
 
 
@@ -239,8 +254,8 @@ def get_github_compare_link(
     return f"https://github.com/levelops/{SERVICE_TO_REPO_NAME[service]}/compare/{comparison_tag}...{comparison_branch}"
 
 
-def print_red(s: str):
-    print(f"[red][bold] {s}")
+def print_green(s: str):
+    print(f"[green][bold]{s}")
 
 
 def print_blue(s: str):
@@ -254,15 +269,15 @@ def create_and_push_hotfix_branch(
     repo = get_git_repo(service)
     if hf_branch_name in [i.name for i in repo.heads]:
         raise Exception(f"Branch {hf_branch_name} already exists in {service}")
-    print_red(f"Checking out commons tag {tag} to branch {hf_branch_name}")
+    print(f"[yellow]Checking out commons tag {tag} to branch {hf_branch_name}")
     log_git_result(repo.git.checkout("-b", hf_branch_name, tag))
-    print_red(f"Cherry-picking commons commits: {commit_shas}")
+    print(f"[yellow]Cherry-picking commons commits: {commit_shas}")
     try:
         log_git_result(repo.git.cherry_pick(*commit_shas))
     except GitCommandError as e:
         print(e)
         user_response = typer.prompt(
-            f"[bold] Looks like the cherry-pick on {service} failed. "
+            f"Looks like the cherry-pick on {service} failed. "
             f"Please resolve conflicts and press yes to continue"
         )
         if user_response == "y" or user_response == "yes":
@@ -271,7 +286,7 @@ def create_and_push_hotfix_branch(
         else:
             raise Exception("User discontinued hotfix :( :sad:")
 
-    print_red(f"Pushing to origin")
+    print(f"[blue]Pushing to origin")
     log_git_result(repo.git.push("origin", hf_branch_name))
 
 
@@ -312,10 +327,9 @@ def hotfix(
     print(f"[green]Hot fixing {service}")
     latest_service_version = get_latest_service_version(service)
     prod_commons_version = get_commons_version_from_tag(service, latest_service_version)
-    latest_common_version = get_current_commons_version_for_service(service)
 
-    print_red(f"{service} version in prod = {latest_service_version}")
-    print_red(
+    print_green(f"{service} version in prod = {latest_service_version}")
+    print_green(
         f"Commons version corresponding to {service} {latest_service_version}= {prod_commons_version}"
     )
 
@@ -328,14 +342,17 @@ def hotfix(
         create_and_push_hotfix_branch(
             Service.COMMONS, commons_commit_shas, hf_branch_name, prod_commons_version
         )
-        print_red(
+        print_green(
             f"[bold]Github compare link for commons: "
             f"{get_github_compare_link(Service.COMMONS, hf_branch_name, prod_commons_version)}"
         )
 
-        print_red("Building commons now!")
+        print_green("Building commons now!")
         new_commons_version = build_commons(hf_branch_name, "-sid-test")
 
+    print("============================================================")
+    print(f"Preparing {service} branch")
+    print("============================================================")
     switch_to_master_branch(service, True)
     service_commit_shas = service_commit_shas.split(",")
     create_and_push_hotfix_branch(
@@ -355,18 +372,13 @@ def hotfix(
     # Change the version of commons in the build file
 
     if commons_commit_shas:
-        print_red(
-            f"Commons comparison link: {get_github_compare_link(Service.COMMONS, hf_branch_name, prod_commons_version)}"
+        print_green(
+            f"Commons comparison link: {get_github_compare_link(Service.COMMONS, hf_branch_name, service_comparison_link)}"
         )
 
-    print_red(
+    print_green(
         f"Service comparison link: {get_github_compare_link(service, hf_branch_name, latest_service_version)}"
     )
-
-
-@app.command()
-def hf():
-    print("hf")
 
 
 if __name__ == "__main__":
