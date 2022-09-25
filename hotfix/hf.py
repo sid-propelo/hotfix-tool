@@ -290,20 +290,20 @@ def create_and_push_hotfix_branch(
     log_git_result(repo.git.push("origin", hf_branch_name))
 
 
-def test():
-    # print(get_latest_service_version(Service.SERVER_API))
-    # print(get_current_commons_version_for_service(Service.SERVER_API))
-    get_commons_version_from_tag(Service.SERVER_API, "v0.1.4564-hf")
-
-
 @app.command()
-def cleanup(service: str, branch: str):
+def cleanup(
+    service: str,
+    branch: str,
+    remote: bool = typer.Option(False, help="Should delete remote branch?"),
+):
     service = Service(service)
     print(f"Git deleting branch {branch} from {service}")
     repo = get_git_repo(service)
     switch_to_master_branch(service, False)
-    print(repo.git.branch("-D", branch))
-    print(repo.git.push("origin", "--delete", branch))
+    if remote:
+        print(f"[red]Deleting remote branch {service} {branch}")
+        print(repo.git.branch("-D", branch))
+        print(repo.git.push("origin", "--delete", branch))
 
 
 @app.command()
