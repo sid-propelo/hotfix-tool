@@ -13,6 +13,11 @@ from rich.prompt import Prompt
 
 import pdb
 
+# Read from env variables if not set here
+JENKINS_USERNAME = ""
+JENKINS_TOKEN = ""
+REPO_BASE = ""
+
 
 def configure_settings():
     print("Configuring settings")
@@ -26,11 +31,6 @@ def configure_settings():
 
 
 app = typer.Typer(callback=configure_settings)
-
-# Change ME!
-JENKINS_USERNAME = ""
-JENKINS_TOKEN = ""
-REPO_BASE = ""
 
 
 class Service(Enum):
