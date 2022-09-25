@@ -1,8 +1,10 @@
 Setup Instructions:
-1. Download poetry
+1. Download poetry (v 1.2.1)
 2. `poetry install` in the top level directory
 3. Change the environment variables in hf.py
 4. `python hf.py hotfix --help`
+
+
 
 
 This tool does the following:
