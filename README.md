@@ -1,3 +1,5 @@
+This project was built using Python 3.8.10 - for best results please install `pyenv` and setup your local version to `3.8.10` before continuing.
+
 Setup Instructions:
 1. Download poetry (v 1.2.1)
 2. `poetry install` in the top level directory
