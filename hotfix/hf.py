@@ -102,35 +102,41 @@ def get_jenkins_build_url_from_queue(queue_url: str) -> str:
             time.sleep(2)
             count += 1
 
-    build_url = response.json()["executable"]["url"]
-    build_version = typer.prompt(
-        f"Please visit this build url: {build_url} and enter the build version "
-        f"number after the build succeeds"
-    )
-    return build_version
+    return response.json()["executable"]["url"]
 
 
-def build_commons(branch: str, suffix: str):
-    url = generate_jenkins_url(Service.COMMONS)
-    headers = {}
-    payload = {}
-    params = {
-        "token": "commonsAuthToken",
-        "cause": "hot fix script",
-        "BRANCH_NAME": branch,
-        "VERSION_SUFFIX": suffix,
-    }
-    response = requests.request(
-        "POST", url, params=params, headers=headers, data=payload
-    )
-    if response.status_code == 201:
-        queue_url = response.headers["Location"]
-        print(f"[green]Successfully created commons build. Queue url: {queue_url}")
-    else:
-        raise Exception(
-            f"Unable to spawn commons build. Response: {response.status_code} {response.content}"
+def build_commons(branch: str, suffix: str, no_build: bool):
+    if not no_build:
+        url = generate_jenkins_url(Service.COMMONS)
+        headers = {}
+        payload = {}
+        params = {
+            "token": "commonsAuthToken",
+            "cause": "hot fix script",
+            "BRANCH_NAME": branch,
+            "VERSION_SUFFIX": suffix,
+        }
+        response = requests.request(
+            "POST", url, params=params, headers=headers, data=payload
         )
-    return get_jenkins_build_url_from_queue(queue_url)
+        if response.status_code == 201:
+            queue_url = response.headers["Location"]
+            print(f"[green]Successfully created commons build. Queue url: {queue_url}")
+        else:
+            raise Exception(
+                f"Unable to spawn commons build. Response: {response.status_code} {response.content}"
+            )
+        build_url = get_jenkins_build_url_from_queue(queue_url)
+        build_version = typer.prompt(
+            f"Please visit this build url: {build_url} and enter the build version "
+            f"number after the build succeeds"
+        )
+    else:
+        build_version = typer.prompt(
+            f"--no-build option detected. Please enter commons build image "
+            f"version you would like to hot fix"
+        )
+    return build_version
 
 
 def get_repo_path(service: Service) -> str:
@@ -191,7 +197,7 @@ def get_latest_service_version(service: Service):
 def get_commons_version_from_file(file_path: str) -> str:
     with open(file_path) as f:
         content = f.read()
-        results = re.search('ext.levelopsCommonsVersion\s+=\s+"(.*)"', content)
+        results = re.search("ext.levelopsCommonsVersion\s+=\s+[\"'](.*)[\"']", content)
         return results.groups()[0]
 
 
@@ -212,26 +218,29 @@ def switch_commons_version_for_service(service: Service, new_version: str):
     with in_place.InPlace(build_file_path) as f:
         for line in f:
             if re.search("ext.levelopsCommonsVersion", line):
-                line = re.sub("v\d+.\d+.\d+", new_version, line)
+                line = re.sub("v\d+.\d+.\d+-*\w*", new_version, line)
             f.write(line)
+
+
+def get_service_tag(service: Service, tag: str) -> str:
+    switch_to_master_branch(service, True)
+    repo = get_git_repo(service)
+    log_git_result(repo.git.fetch("--all", "--tags"))
+    all_tags = repo.git.tag().split("\n")
+    for t in all_tags:
+        if tag in t:
+            print(f"[yellow]Found tag {t}")
+            return t
+    raise Exception(f"A matching tag was not found for {service} - {tag}")
 
 
 def get_commons_version_from_tag(service: Service, tag: str):
     print(f"[green]Getting commons version of {service} version {tag}")
     switch_to_master_branch(service, True)
     repo = get_git_repo(service)
-    log_git_result(repo.git.fetch("--all", "--tags"))
-    all_tags = repo.git.tag().split("\n")
-    found_tag = None
-    for t in all_tags:
-        if tag in t:
-            found_tag = t
-            print(f"[yellow]Found tag {tag}")
-    if not found_tag:
-        raise Exception("A matching tag was not found")
 
-    print(f"[yellow]Checking out {found_tag} for {service}")
-    log_git_result(repo.git.checkout(found_tag))
+    print(f"[yellow]Checking out {tag} for {service}")
+    log_git_result(repo.git.checkout(tag))
     build_file_path = os.path.join(
         repo.working_tree_dir, SERVICE_TO_BUILD_FILE[service]
     )
@@ -271,9 +280,10 @@ def create_and_push_hotfix_branch(
         raise Exception(f"Branch {hf_branch_name} already exists in {service}")
     print(f"[yellow]Checking out commons tag {tag} to branch {hf_branch_name}")
     log_git_result(repo.git.checkout("-b", hf_branch_name, tag))
-    print(f"[yellow]Cherry-picking commons commits: {commit_shas}")
     try:
-        log_git_result(repo.git.cherry_pick(*commit_shas))
+        if commit_shas:
+            print(f"[yellow]Cherry-picking commons commits: {commit_shas}")
+            log_git_result(repo.git.cherry_pick(*commit_shas))
     except GitCommandError as e:
         print(e)
         user_response = typer.prompt(
@@ -316,21 +326,25 @@ def hotfix(
         " repos.",
     ),
     service_commit_shas: str = typer.Option(
-        ...,
+        "",
         help="Comma seperated string of commit shas for the service you want to hot fix",
     ),
     commons_commit_shas: Optional[str] = typer.Option(
-        None, help="Comma seperated string of commons " "commit shas"
+        None, help="Comma seperated string of commons commit shas"
+    ),
+    no_build: bool = typer.Option(
+        False, help="Set to true if you do not want to spawn a commons build"
     ),
 ):
     service = Service(service)
     print(f"[green]Hot fixing {service}")
     latest_service_version = get_latest_service_version(service)
-    prod_commons_version = get_commons_version_from_tag(service, latest_service_version)
+    service_tag = get_service_tag(service, latest_service_version)
+    prod_commons_version = get_commons_version_from_tag(service, service_tag)
 
-    print_green(f"{service} version in prod = {latest_service_version}")
+    print_green(f"{service} version in prod = {service_tag}")
     print_green(
-        f"Commons version corresponding to {service} {latest_service_version}= {prod_commons_version}"
+        f"Commons version corresponding to {service} {service_tag}= {prod_commons_version}"
     )
 
     print("============================================================")
@@ -348,15 +362,18 @@ def hotfix(
         )
 
         print_green("Building commons now!")
-        new_commons_version = build_commons(hf_branch_name, "-sid-test")
+        new_commons_version = build_commons(hf_branch_name, "-hf", no_build)
 
     print("============================================================")
     print(f"Preparing {service} branch")
     print("============================================================")
     switch_to_master_branch(service, True)
-    service_commit_shas = service_commit_shas.split(",")
+    if service_commit_shas:
+        service_commit_shas = service_commit_shas.split(",")
+    else:
+        service_commit_shas = []
     create_and_push_hotfix_branch(
-        service, service_commit_shas, hf_branch_name, latest_service_version
+        service, service_commit_shas, hf_branch_name, service_tag
     )
     if new_commons_version:
         switch_commons_version_for_service(service, new_commons_version)
@@ -366,19 +383,22 @@ def hotfix(
         repo.git.push("origin", hf_branch_name)
 
     service_comparison_link = get_github_compare_link(
-        service, hf_branch_name, latest_service_version
+        service, hf_branch_name, service_tag
     )
 
     # Change the version of commons in the build file
-
     if commons_commit_shas:
-        print_green(
-            f"Commons comparison link: {get_github_compare_link(Service.COMMONS, hf_branch_name, service_comparison_link)}"
-        )
+        if no_build:
+            print_green(
+                "No commons comparison link generated because a custom"
+                "commons version was provided."
+            )
+        else:
+            print_green(
+                f"Commons comparison link: {get_github_compare_link(Service.COMMONS, hf_branch_name, prod_commons_version)}"
+            )
 
-    print_green(
-        f"Service comparison link: {get_github_compare_link(service, hf_branch_name, latest_service_version)}"
-    )
+    print_green(f"Service comparison link: {service_comparison_link}")
 
 
 if __name__ == "__main__":
